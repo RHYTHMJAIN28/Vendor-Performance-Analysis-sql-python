@@ -1,6 +1,6 @@
-data/ 
-*.csv 
+data/*
+!data/vendor_sales_compressed.csv
 *.xlsx 
 *.zip 
 __pycache__/ 
-.ipynb_checkpoints/ 
+.ipynb_checkpoints/

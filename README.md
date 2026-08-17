@@ -1,113 +1,72 @@
-### ​‍​‌‍​‍‌​‍​‌‍​‍‌ Vendor Performance Analysis 
+# Vendor Performance Analysis
 
-### Overview 
+Analyzed 15.6M+ purchase, sales, and freight records across 125 vendors and 10,600+ vendor-brand relationships to identify underperforming vendors, pricing inefficiencies, and cost-saving opportunities in a retail supply chain.
 
-The Vendor Performance Analysis project aims to evaluate the efficiency, reliability, and profitability of vendors through a comprehensive data-driven approach.
-Organizations often deal with multiple suppliers and face challenges in tracking which vendors deliver the best value in terms of cost, timeliness, and sales impact.
-This project leverages data analytics techniques to assess vendor performance across several dimensions including purchase behavior, sales outcomes, and freight costs.
+![Top Vendors by Sales](assets/top_vendors.png)
 
-By connecting to a centralized SQLite database (inventory.db), the analysis consolidates data from multiple tables such as purchases, purchase_prices, vendor_invoice, and sales.
-It utilizes Python-based data analysis and visualization to uncover hidden patterns, relationships, and performance gaps between vendors and brands.
+## Problem
 
-Through Exploratory Data Analysis (EDA), the project identifies:
+A retail distributor works with 100+ vendors across thousands of SKUs. Leadership had no consolidated view of which vendors were actually driving profit versus tying up capital in slow-moving inventory, and freight costs were being tracked manually per invoice with no vendor-level rollup.
 
-Vendors generating the highest sales and profit margins
+## Approach
 
-Cost discrepancies between purchase and sales prices
+1. **Data engineering** — Ingested six raw CSV sources (purchases, sales, purchase prices, vendor invoices, beginning/ending inventory — 15.6M rows total) into a normalized SQLite database using a chunked, memory-safe Python ingestion pipeline.
+2. **SQL aggregation** — Built a consolidated vendor × brand summary table via multi-CTE SQL joins across purchases, sales, and freight data.
+3. **Statistical analysis** — Used confidence intervals and Welch's t-test to determine whether the profit-margin gap between high-sales and low-sales vendors was statistically significant, not just noise.
+4. **Data validation** — Ran the full pipeline against the real 2GB dataset and caught two production-grade bugs that only surfaced with real data (see below).
 
-Freight cost contributions to overall expenses
+## Key Findings
 
-Brand-level performance linked to specific suppliers
+- **Vendor concentration:** the top 10 vendors account for the large majority of purchase volume (Pareto analysis below) — a small vendor set drives most of the business.
+- **Statistically significant profit gap:** a Welch's t-test confirmed high-sales-volume vendors and low-sales-volume vendors have significantly different profit margins (p < 0.05), not explained by chance.
+- **Bulk-purchase discount effect:** larger order sizes correlate with meaningfully lower per-unit purchase prices, quantifying the leverage bigger vendors get from bulk orders.
+- **178 dead-stock brand relationships:** identified vendor-brand pairs with purchase activity but zero sales — capital sitting in inventory with no turnover.
 
-This study not only helps in understanding vendor efficiency but also assists decision-makers in optimizing supply chain operations, negotiating better terms, and prioritizing top-performing vendors for future procurement.
---- 
+![Vendor Purchase Contribution (Pareto)](assets/pareto_vendors.png)
 
-###  Key Objectives 
+## Data Quality Issues Found & Fixed
 
-- Use of sales, purchase, and freight data to analyze vendor performance. 
-- Purchases prices, sales quantities, and vendor invoice details comparison. 
-- Identify top brands and vendors contributing to revenue. 
-- Analyze vendor cost-effectiveness and delivery efficiency. 
---- 
+Real-world data surfaced bugs that don't show up in a code review — the kind of validation that matters before numbers go in front of stakeholders:
 
-###  Project Workflow 
+| Issue | Impact | Fix |
+|---|---|---|
+| Purchase-price join matched on `Brand` only | Risked inflated purchase totals for brands carried by multiple vendors | Joined on `Brand + VendorNumber` |
+| `ProfitMargin` divided by zero for never-sold brands | Silently produced `-inf`, corrupting every downstream mean/std/CI | Guarded with a conditional (`NaN` when no sales occurred) |
+| Freight cost stored at vendor grain but joined into a vendor×brand table | Naively summing freight cost inflated the true total by ~400x (verified against source data) | Documented as a required separate aggregation for reporting/BI layers |
+| `pandas.to_sql(if_exists='replace')` silently dropped a manually defined `PRIMARY KEY` | Table integrity constraint was a no-op | Reordered to `DROP TABLE` → `CREATE TABLE` (with PK) → `to_sql(if_exists='append')` |
 
-1. **Database Connection:** 
-Links an SQLite database (`inventory.db`) with have tables such as: 
-- `purchases` 
-- `purchase_prices` 
-- `vendor_invoice` 
-- `sales` 
+## Tech Stack
 
-2. **Data Extraction & Cleaning:** 
+`Python` · `pandas` · `NumPy` · `SciPy` (hypothesis testing) · `SQLite` / `SQLAlchemy` · `Matplotlib` · `Seaborn` · `Jupyter`
 
-Data is read through `pandas` and SQL queries where data integrity and consistency are maintained. 
+## Repository Structure
 
-3. **Exploratory Data Analysis (EDA):** 
+```
+├── data/
+│   └── vendor_sales_compressed.csv   # pre-built summary table (10,648 rows)
+├── scripts/
+│   └── ingest_db.ipynb               # chunked CSV -> SQLite ingestion
+├── notebooks/
+│   ├── Exploratory Data Analysis.ipynb
+│   └── Vendor Performance Analysis.ipynb
+├── report/
+│   └── Vendor Performance Report.pdf
+└── requirements.txt
+```
 
-Descriptive statistics and the visual inspection of the main vendor metrics are carried out. 
+## Run It
 
-4. **Vendor Insights:** 
+```bash
+pip install -r requirements.txt
+jupyter notebook scripts/ingest_db.ipynb                        # build inventory.db (add raw CSVs to data/ first)
+jupyter notebook "notebooks/Exploratory Data Analysis.ipynb"    # build the summary table
+jupyter notebook "notebooks/Vendor Performance Analysis.ipynb"  # run the analysis
+```
 
-Shows total purchases, sales revenue, and freight costs by vendor and brand through summarization. 
+Or skip straight to the analysis using the pre-built `data/vendor_sales_compressed.csv`.
 
-5. **Visualization:** 
+## Author
 
-Creates different visuals and comparisons to emphasize top vendors and cost trends. 
+Rhythm Jain — rhythmjain2021@gmail.com
 
---- 
-
-### Tech Stack 
-- **Language:** Python 
-- **Database:** SQLite 
-- **Libraries:** 
-- `pandas` - for data manipulation and analysis 
-- `sqlite3` - for database connection and queries 
-- `matplotlib` - for the visualization of data 
-- `seaborn` – Statistical plotting
-
----
-
-### Insights & Metrics
-- **Total Purchase Quantity and Value** per vendor  
-- **Sales Performance** by brand  
-- **Freight Cost Summaries** for each vendor  
-- **Comparison of Purchase vs. Sales Prices**  
-- **Top Vendors** based on revenue contribution  
-
----
-
-###  How to Run the Project
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/<your-username>/vendor-performance-analysis.git
-   cd vendor-performance-analysis
-
-2. Install dependencies:
-pip install pandas matplotlib seaborn
-
-3. Run the notebooks in Jupyter:
-jupyter notebook "Vendor Performance Analysis.ipynb"
-
-### Future Enhancements
-
-Incorporate machine learning models for vendor rating prediction.
-
-Automate dashboards for vendor KPIs.
-
-Add interactive visualizations using Plotly or Power BI.
-
-###  Author
-
-Rhythm Jain
-📧 rhythmjain2021@gmail.com
-📍 Data Analytics & Business Insights Enthusiast
-🏷️ License
-This project is open-source and available under the MIT License
-.
-
-
-
---- 
-
-### 📂 Repository ​‍​‌‍​‍‌​‍​‌‍​‍‌Structure 
+License: MIT
